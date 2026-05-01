@@ -2,6 +2,7 @@
 import { useCallback } from 'react';
 import useAppStore from '../store/appStore';
 import { startPipeline, getPipelineStatus, uploadFile } from '../utils/api';
+import { normalizeStepKey } from '../utils/pipeline';
 import { toast } from 'sonner';
 
 export default function useAgent() {
@@ -10,6 +11,7 @@ export default function useAgent() {
     setCurrentSession,
     setPipelineStatus,
     resetPipeline,
+    setRightPanelTab,
     setUploadedFile,
     addMessage,
     setLoading,
@@ -50,6 +52,7 @@ export default function useAgent() {
       const sessionId = response.data.session_id;
       setCurrentSession(sessionId);
       setPipelineStatus('running');
+      setRightPanelTab('terminal');
 
       addMessage({
         role: 'system',
@@ -64,7 +67,7 @@ export default function useAgent() {
     } finally {
       setLoading(false);
     }
-  }, [setLoading, resetPipeline, setCurrentSession, setPipelineStatus, addMessage]);
+  }, [setLoading, resetPipeline, setCurrentSession, setPipelineStatus, addMessage, setRightPanelTab]);
 
   const refreshStatus = useCallback(async () => {
     if (!currentSessionId) return null;
@@ -74,8 +77,10 @@ export default function useAgent() {
 
       // Update steps from API response
       status.steps?.forEach((step) => {
-        const stepKey = step.name.toLowerCase().replace(/ /g, '_');
-        updateStep(stepKey, { status: step.status });
+        const stepKey = normalizeStepKey(step.key || step.name);
+        if (stepKey) {
+          updateStep(stepKey, { status: step.status, error: step.error || null });
+        }
       });
 
       setPipelineStatus(status.status);

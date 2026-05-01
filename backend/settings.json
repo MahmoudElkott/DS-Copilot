@@ -1,0 +1,13 @@
+{
+  "llm_provider": "local",
+  "model_name": "qwen3.5-4b",
+  "execution_env": "local",
+  "python_interpreter": "C:\\Users\\mahmo\\AppData\\Local\\Microsoft\\WindowsApps\\python3.EXE",
+  "temperature": 0.1,
+  "max_tokens": 4096,
+  "openai_api_key": "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",
+  "openai_api_base": "http://localhost:1234/v1",
+  "ollama_base_url": "http://localhost:11434",
+  "fallback_llm_provider": "openai",
+  "fallback_model_name": "gpt-4o"
+}

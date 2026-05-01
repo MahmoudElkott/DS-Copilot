@@ -44,13 +44,13 @@ class TestHelpers:
 
 class TestExecutionResult:
     def test_creation(self):
-        from app.core.executor import ExecutionResult
+        from app.infrastructure.executor import ExecutionResult
         r = ExecutionResult(success=True, stdout="ok", stderr="")
         assert r.success is True
         assert r.files_created == []
 
     def test_failure(self):
-        from app.core.executor import ExecutionResult
+        from app.infrastructure.executor import ExecutionResult
         r = ExecutionResult(success=False, stdout="", stderr="error", execution_time=1.5)
         assert r.success is False
         assert r.execution_time == 1.5
@@ -58,7 +58,7 @@ class TestExecutionResult:
 
 class TestHarnessReport:
     def test_creation(self):
-        from app.core.harness import HarnessReport
+        from app.infrastructure.harness import HarnessReport
         r = HarnessReport(step_name="test_step")
         assert r.status == "pending"
         assert r.tests_passed == 0
@@ -67,7 +67,7 @@ class TestHarnessReport:
 
 class TestFileManager:
     def test_create_project_structure(self, temp_dir):
-        from app.core.file_manager import FileManager
+        from app.infrastructure.file_manager import FileManager
         fm = FileManager(output_dir=temp_dir)
         project_dir = fm.create_project_structure("test-project")
         assert os.path.isdir(project_dir)
@@ -76,7 +76,7 @@ class TestFileManager:
         assert os.path.isdir(os.path.join(project_dir, "data", "raw"))
 
     def test_write_file(self, temp_dir):
-        from app.core.file_manager import FileManager
+        from app.infrastructure.file_manager import FileManager
         fm = FileManager(output_dir=temp_dir)
         project_dir = fm.create_project_structure("test-project")
         path = fm.write_file(project_dir, "test.txt", "hello")
@@ -85,14 +85,14 @@ class TestFileManager:
             assert f.read() == "hello"
 
     def test_generate_readme(self):
-        from app.core.file_manager import FileManager
+        from app.infrastructure.file_manager import FileManager
         fm = FileManager()
         readme = fm.generate_readme({"name": "Test", "task_type": "classification"})
         assert "Test" in readme
         assert "classification" in readme
 
     def test_generate_requirements(self):
-        from app.core.file_manager import FileManager
+        from app.infrastructure.file_manager import FileManager
         fm = FileManager()
         reqs = fm.generate_requirements(["custom-pkg>=1.0"])
         assert "pandas" in reqs

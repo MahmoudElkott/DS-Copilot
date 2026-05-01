@@ -1,146 +1,151 @@
-// frontend/src/components/Layout/MainLayout.jsx
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import {
-  MessageSquare, LayoutDashboard, Code2, Settings, FolderTree,
-  PanelRightClose, PanelRightOpen, Sparkles, Wifi, WifiOff, ChevronDown,
-} from 'lucide-react';
+import { useEffect } from 'react';
+import { Sparkles, Wifi, WifiOff, Settings2 } from 'lucide-react';
+import { Panel, Group as PanelGroup, Separator as PanelResizeHandle } from 'react-resizable-panels';
 import useAppStore from '../../store/appStore';
+import useWebSocket from '../../hooks/useWebSocket';
+import Sidebar from './Sidebar';
+import ChatPane from './ChatPane';
+import NotebookPane from './NotebookPane';
+import ThemeSwitcher from '../shared/ThemeSwitcher';
+import SettingsModal from '../settings/SettingsModal';
 
-export default function MainLayout({ children }) {
-  const {
-    activeTab, setActiveTab,
-    rightPanelOpen, setRightPanelOpen,
-    rightPanelTab, setRightPanelTab,
-    isConnected,
-    pipelineStatus,
+export default function MainLayout() {
+  const { 
+    isConnected, 
+    pipelineStatus, 
+    setSettingsModalOpen, 
+    isSettingsModalOpen,
+    currentSessionId,
+    addMessage,
+    initializeSession,
+    fetchLocalModels,
+    settings,
   } = useAppStore();
+  
 
-  const navItems = [
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  ];
+  // ── Auto-initialize session + load settings on mount ──
+  useEffect(() => {
+    initializeSession().then(() => {
+      const { settings: s } = useAppStore.getState();
+      if (s.llmProvider === 'local' || s.llmProvider === 'ollama') {
+        fetchLocalModels(s.llmProvider);
+      }
+    });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const rightTabs = [
-    { id: 'code', label: 'Code', icon: Code2 },
-    { id: 'files', label: 'Files', icon: FolderTree },
-    { id: 'settings', label: 'Settings', icon: Settings },
-  ];
+  // Initialize WebSocket connection
+  const { sendMessage } = useWebSocket(currentSessionId);
+
+  // Global event listener for sending messages from other components
+  useEffect(() => {
+    const handleGlobalSend = (e) => {
+      const { message, type = 'chat' } = e.detail;
+      if (currentSessionId) {
+        sendMessage(type, message);
+      } else {
+        addMessage({
+          role: 'system',
+          content: '⚠️ No active session. Upload a file to begin.',
+        });
+      }
+    };
+
+    window.addEventListener('ds-copilot:send', handleGlobalSend);
+    return () => window.removeEventListener('ds-copilot:send', handleGlobalSend);
+  }, [currentSessionId, sendMessage, addMessage]);
 
   return (
-    <div className="h-screen flex flex-col bg-surface-900 overflow-hidden">
-      {/* ── Top Bar ──────────────────────────────── */}
-      <header className="h-14 flex items-center justify-between px-4 border-b border-surface-700 bg-surface-850/80 backdrop-blur-xl z-50">
+    <div className="h-screen flex flex-col overflow-hidden" style={{ background: 'var(--bg-primary)' }}>
+      {/* ── HEADER ────────────────────────────────────── */}
+      <header
+        className="flex-shrink-0 flex items-center justify-between px-5 z-50 border-b"
+        style={{
+          height: 'var(--header-height)',
+          background: 'var(--bg-tertiary)',
+          borderColor: 'var(--border)',
+        }}
+      >
+        {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-brand-500 to-purple-600 flex items-center justify-center shadow-lg shadow-brand-500/30">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
-            <h1 className="text-lg font-bold gradient-text">DS-Copilot</h1>
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: 'var(--accent)', color: 'var(--bg-primary)' }}
+          >
+            <Sparkles className="w-4 h-4" />
           </div>
-
-          {/* Tab Navigation */}
-          <nav className="flex items-center ml-6 gap-1">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                    isActive
-                      ? 'bg-brand-600/20 text-brand-400 border border-brand-500/30'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {item.label}
-                </button>
-              );
-            })}
-          </nav>
+          <div>
+            <h1 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>
+              DS-Copilot
+            </h1>
+            <p className="text-[9px] uppercase tracking-[0.25em] font-semibold -mt-0.5" style={{ color: 'var(--text-muted)' }}>
+              Autonomous Intelligence
+            </p>
+          </div>
         </div>
 
+        {/* Status + Actions */}
         <div className="flex items-center gap-3">
-          {/* Pipeline Status Badge */}
           {pipelineStatus && (
-            <motion.div
-              initial={{ scale: 0.8, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              className={`badge ${
-                pipelineStatus === 'running' ? 'badge-warning' :
-                pipelineStatus === 'completed' ? 'badge-success' : 'badge-error'
-              }`}
-            >
+            <span className={`badge ${
+              pipelineStatus === 'running' ? 'badge-warning' :
+              pipelineStatus === 'completed' ? 'badge-success' : 'badge-error'
+            }`}>
               {pipelineStatus === 'running' && (
-                <span className="w-2 h-2 bg-amber-400 rounded-full mr-1.5 animate-pulse" />
+                <span className="w-1.5 h-1.5 rounded-full mr-1.5 animate-pulse" style={{ background: 'var(--status-warning)' }} />
               )}
               {pipelineStatus}
-            </motion.div>
+            </span>
           )}
 
-          {/* Connection Status */}
-          <div className={`flex items-center gap-1.5 text-xs ${isConnected ? 'text-emerald-400' : 'text-gray-500'}`}>
+          <div className="w-px h-4" style={{ background: 'var(--border)' }} />
+
+          <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider" style={{ color: isConnected ? 'var(--status-success)' : 'var(--text-muted)' }}>
             {isConnected ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
             {isConnected ? 'Live' : 'Offline'}
           </div>
 
-          {/* Right Panel Toggle */}
+          <div className="w-px h-4" style={{ background: 'var(--border)' }} />
+
+          <ThemeSwitcher />
+
           <button
-            onClick={() => setRightPanelOpen(!rightPanelOpen)}
-            className="btn-ghost p-1.5"
+            onClick={() => setSettingsModalOpen(true)}
+            className="btn-ghost p-2"
+            title="Settings"
           >
-            {rightPanelOpen ? <PanelRightClose className="w-4 h-4" /> : <PanelRightOpen className="w-4 h-4" />}
+            <Settings2 className="w-4 h-4" />
           </button>
+
         </div>
       </header>
 
-      {/* ── Main Content ─────────────────────────── */}
+      {/* ── BODY: Sidebar + Panels ───────────────────── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Center Panel */}
-        <main className="flex-1 min-w-0 overflow-hidden">
-          {children}
-        </main>
+        {/* Column A: Sidebar (fixed) */}
+        <Sidebar />
 
-        {/* Right Panel */}
-        <AnimatePresence>
-          {rightPanelOpen && (
-            <motion.aside
-              initial={{ width: 0, opacity: 0 }}
-              animate={{ width: 420, opacity: 1 }}
-              exit={{ width: 0, opacity: 0 }}
-              transition={{ duration: 0.2, ease: 'easeInOut' }}
-              className="border-l border-surface-700 bg-surface-850 overflow-hidden flex flex-col"
-            >
-              {/* Right Panel Tabs */}
-              <div className="flex border-b border-surface-700 px-2 pt-2">
-                {rightTabs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isActive = rightPanelTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      onClick={() => setRightPanelTab(tab.id)}
-                      className={`flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-t-lg transition-all duration-200 ${
-                        isActive
-                          ? 'bg-surface-900 text-brand-400 border-t border-x border-brand-500/30'
-                          : 'text-gray-500 hover:text-gray-300'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5" />
-                      {tab.label}
-                    </button>
-                  );
-                })}
-              </div>
+        {/* Column B + C: Resizable panels */}
+        <div className="flex-1 min-w-0">
+          <PanelGroup direction="horizontal">
+            {/* Column B: Chat Pane */}
+            <Panel defaultSize={35} minSize={20}>
+              <ChatPane />
+            </Panel>
+            <PanelResizeHandle
+              className="w-[3px] transition-colors duration-150"
+              style={{ background: 'var(--border)' }}
+            />
 
-              {/* Right Panel Content (rendered by App.jsx) */}
-              <div className="flex-1 overflow-hidden" id="right-panel-content" />
-            </motion.aside>
-          )}
-        </AnimatePresence>
+            {/* Column C: Notebook Pane (Routes) */}
+            <Panel defaultSize={65}>
+              <NotebookPane />
+            </Panel>
+          </PanelGroup>
+        </div>
       </div>
+
+      {/* Settings Modal */}
+      {isSettingsModalOpen && <SettingsModal />}
     </div>
   );
 }

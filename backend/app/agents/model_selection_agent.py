@@ -7,8 +7,8 @@ import json
 import logging
 
 from langchain_core.messages import HumanMessage, AIMessage
-from app.core.llm_router import llm_router
-from app.utils.helpers import extract_code, safe_json_parse
+from app.infrastructure.llm_router import llm_router
+from app.utils.helpers import safe_json_parse, compact_json_for_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -22,22 +22,44 @@ class ModelSelectionAgent:
     async def run(state: dict) -> dict:
         logger.info("[Agent] 🤖 Model Selection starting...")
 
-        model = llm_router.get_model(task_type="model_selection")
+        user_settings = state.get("user_settings", {})
+        model = llm_router.get_model(
+            task_type="model_selection",
+            provider_override=user_settings.get("llm_provider"),
+            model_override=user_settings.get("model_name"),
+            runtime_settings=user_settings,
+        )
         dataset_info = state.get("dataset_info", {})
         eda_result = state.get("eda_result", {})
         cleaning_result = state.get("cleaning_result", {})
+
+        dataset_info_prompt = compact_json_for_prompt(
+            dataset_info,
+            max_chars=3500,
+            max_items=30,
+        )
+        eda_result_prompt = compact_json_for_prompt(
+            eda_result,
+            max_chars=3000,
+            max_items=30,
+        )
+        cleaning_result_prompt = compact_json_for_prompt(
+            cleaning_result,
+            max_chars=3000,
+            max_items=30,
+        )
 
         prompt = f"""
 You are a senior ML engineer. Analyze the dataset and recommend the best models.
 
 DATASET INFO:
-{json.dumps(dataset_info, indent=2, default=str)}
+{dataset_info_prompt}
 
 EDA FINDINGS:
-{json.dumps(eda_result, indent=2, default=str)}
+{eda_result_prompt}
 
 CLEANING SUMMARY:
-{json.dumps(cleaning_result, indent=2, default=str)}
+{cleaning_result_prompt}
 
 Based on this analysis, respond in JSON with:
 {{

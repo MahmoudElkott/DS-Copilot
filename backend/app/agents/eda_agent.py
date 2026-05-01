@@ -3,20 +3,23 @@
 EDA Agent — performs Exploratory Data Analysis.
 Generates visualizations, statistical summaries, correlation analysis.
 """
+import os
 import json
 import logging
+import base64
 
-from langchain_core.messages import HumanMessage, AIMessage
-from app.core.llm_router import llm_router
-from app.core.executor import create_executor
-from app.core.harness import HarnessEngine
-from app.utils.helpers import extract_code, safe_json_parse
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
+from app.infrastructure.llm_router import llm_router
+from app.infrastructure.utils import CodeSplitter
+from app.infrastructure.executor import create_executor
+from app.infrastructure.paths import GlobalPathManager
+from app.utils.helpers import extract_code, safe_json_parse, compact_json_for_prompt
 
 logger = logging.getLogger(__name__)
 
 
 class EDAAgent:
-    """Agent that performs Exploratory Data Analysis."""
+    """Agent that performs Exploratory Data Analysis using Modular Cell Architecture."""
 
     NAME = "eda"
 
@@ -24,75 +27,111 @@ class EDAAgent:
     async def run(state: dict) -> dict:
         logger.info("[Agent] 📊 EDA starting...")
 
-        model = llm_router.get_model(task_type="eda")
+        user_settings = state.get("user_settings", {})
+        model = llm_router.get_model(
+            task_type="code_writing",
+            provider_override=user_settings.get("llm_provider"),
+            model_override=user_settings.get("model_name"),
+            runtime_settings=user_settings,
+        )
         dataset_info = state.get("dataset_info", {})
+        from app.agent.tools.file_handler import FileHandler
+        dataset_path = FileHandler.get_dataset_path(state)
+        plots_dir = FileHandler.get_directory("plots")
 
-        prompt = f"""
-You are an expert data scientist. Write Python code for comprehensive EDA.
+        system_prompt = f"""
+You are a Lead Data Science Engineer performing Exploratory Data Analysis.
+You MUST generate a minimum of 4-5 distinct code cells, each tagged with exactly this format:
+### CELL: [Name]
 
-DATASET INFO:
-{json.dumps(dataset_info, indent=2, default=str)}
-
-CLEANED DATA PATH: data/processed/cleaned_data.csv
-
-Write complete Python code that:
-1. Loads the cleaned dataset
-2. Generates distribution plots for all numeric columns
-3. Correlation heatmap
-4. Box plots for numeric columns
-5. Value counts for categorical columns
-6. Pair plot for top 5 most correlated features
-7. Missing value visualization
-8. Save ALL plots to 'output/figures/' directory
-9. Print a JSON summary of key findings
-
-Use matplotlib and seaborn. Save figures, don't show them.
-Use plt.savefig() with dpi=150 and bbox_inches='tight'.
+Requested Visuals:
+1. Numerical distributions (Histograms).
+2. Categorical counts (Bar charts).
+3. Feature dependencies (Seaborn Heatmap).
+4. Anomaly detection (Boxplots).
+5. (Optional) Time-series or Pairplots if relevant.
 
 IMPORTANT:
-- Use pandas, matplotlib, seaborn
-- Create 'output/figures/' directory if it doesn't exist
-- Make it robust with try/except
-- Print the summary as the LAST line as valid JSON
-- Include all imports at the top
-- Close all figures after saving (plt.close())
+- Load the dataset strictly from: {dataset_path}
+- Ensure all plotting code uses `import matplotlib; matplotlib.use('Agg')` BEFORE importing pyplot.
+- Save ALL artifacts/images to the directory: {plots_dir}
+- For each code cell, you MUST print a Markdown summary explaining the statistical significance of the chart using print().
+- Output raw Python code only, separated by the cell delimiters. Do not output markdown except inside print() statements and cell delimiters.
 """
-        response = await model.ainvoke([HumanMessage(content=prompt)])
-        code = extract_code(response.content)
+        
+        user_message = f"""
+Dataset Info:
+{compact_json_for_prompt(dataset_info)}
 
-        # Execute with harness (self-healing)
+Perform EDA on: {dataset_path}
+"""
+        messages = [
+            SystemMessage(content=system_prompt.strip()),
+            HumanMessage(content=user_message.strip())
+        ]
+        
+        response = await model.ainvoke(messages)
+        raw_code = response.content
+        
+        cells = CodeSplitter.parse_cells(raw_code, stage="eda")
+        full_code = "\n\n".join([cell["content"] for cell in cells])
+        
         executor = create_executor(
-            state["user_settings"].get("execution_env", "local")
+            user_settings.get("execution_env", "local"),
+            session_id=state["session_id"],
+            python_interpreter=user_settings.get("python_interpreter"),
+            e2b_api_key=user_settings.get("e2b_api_key"),
         )
-        harness = HarnessEngine(executor, llm_router)
-        result, report = await harness.execute_with_healing(
-            code=code,
-            step_name="eda",
-            max_retries=3,
-        )
+        
+        context_config = None
+        if hasattr(executor, "sandbox_dir"):
+            context_config = GlobalPathManager.get_context_config(
+                executor.sandbox_dir, dataset_path
+            )
+            
+        timeout_seconds = int(user_settings.get("execution_timeout", 120))
+        exec_result = await executor.execute(full_code, timeout=timeout_seconds, context_config=context_config)
+        
+        images = {}
+        if os.path.exists(plots_dir):
+            for filename in os.listdir(plots_dir):
+                if filename.lower().endswith((".png", ".jpg", ".jpeg")):
+                    file_path = os.path.join(plots_dir, filename)
+                    try:
+                        with open(file_path, "rb") as f:
+                            b64 = base64.b64encode(f.read()).decode("utf-8")
+                            images[filename] = f"data:image/png;base64,{b64}"
+                    except Exception as e:
+                        logger.error(f"Error reading image {filename}: {e}")
+        
+        eda_result = {
+            "success": exec_result.success,
+            "stdout": exec_result.stdout,
+            "stderr": exec_result.stderr,
+            "images": images
+        }
 
-        eda_result = {}
-        if result.success:
-            lines = result.stdout.strip().split("\n")
-            for line in reversed(lines):
-                parsed = safe_json_parse(line)
-                if parsed is not None:
-                    eda_result = parsed
-                    break
-            if not eda_result:
-                eda_result = {"stdout": result.stdout[:1000]}
+        generated_code = dict(state.get("generated_code", {}))
+        generated_code["eda"] = full_code
+        
+        existing_cells = state.get("code_out", [])
+        # In case we retry EDA, we don't want duplicate EDA cells. Filter out old EDA cells.
+        new_code_out = [c for c in existing_cells if c.get("metadata", {}).get("stage") != "eda"] + cells
+        
+        steps = state.get("steps_completed", [])
+        if "eda" not in steps:
+            steps = steps + ["eda"]
 
         return {
             "eda_result": eda_result,
-            "current_step": "eda_done",
-            "steps_completed": state.get("steps_completed", []) + ["eda"],
-            "generated_code": {
-                **state.get("generated_code", {}),
-                "eda": code,
+            "visualization_payload": {
+                **state.get("visualization_payload", {}),
+                "eda_output": exec_result.stdout,
+                "eda_images": images
             },
-            "harness_reports": state.get("harness_reports", []) + [report.__dict__],
-            "messages": [AIMessage(
-                content=f"📊 EDA complete! Generated visualizations. "
-                        f"Findings: {json.dumps(eda_result, default=str)[:500]}"
-            )],
+            "generated_code": generated_code,
+            "code_out": new_code_out,
+            "current_step": "eda_done",
+            "steps_completed": steps,
+            "messages": [AIMessage(content="📊 EDA completed with modular cells.")],
         }

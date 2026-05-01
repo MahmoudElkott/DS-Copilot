@@ -6,7 +6,7 @@ Limits pipeline runs and API calls per session.
 from fastapi import Request, HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class RateLimiter:
 
     def _clean_old_entries(self, entries: list, window: timedelta):
         """Remove entries older than the window."""
-        cutoff = datetime.utcnow() - window
+        cutoff = datetime.now(timezone.utc) - window
         return [t for t in entries if t > cutoff]
 
     def check_pipeline_rate(self, session_id: str) -> bool:
@@ -42,7 +42,7 @@ class RateLimiter:
         if len(self._pipeline_runs[session_id]) >= self.max_pipeline_runs:
             return False
 
-        self._pipeline_runs[session_id].append(datetime.utcnow())
+        self._pipeline_runs[session_id].append(datetime.now(timezone.utc))
         return True
 
     def check_api_rate(self, client_id: str) -> bool:
@@ -55,7 +55,7 @@ class RateLimiter:
         if len(self._api_calls[client_id]) >= self.max_api_calls:
             return False
 
-        self._api_calls[client_id].append(datetime.utcnow())
+        self._api_calls[client_id].append(datetime.now(timezone.utc))
         return True
 
     def get_retry_after(self, entries: list, window: timedelta) -> int:
@@ -64,7 +64,7 @@ class RateLimiter:
             return 0
         oldest = min(entries)
         expires_at = oldest + window
-        delta = (expires_at - datetime.utcnow()).total_seconds()
+        delta = (expires_at - datetime.now(timezone.utc)).total_seconds()
         return max(1, int(delta))
 
 

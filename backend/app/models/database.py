@@ -5,7 +5,7 @@ Database initialization utilities.
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.config import settings
-from app.core.memory import Base
+from app.infrastructure.memory import Base
 
 
 def get_engine():

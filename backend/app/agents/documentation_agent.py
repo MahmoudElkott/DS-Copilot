@@ -7,9 +7,9 @@ import json
 import logging
 
 from langchain_core.messages import HumanMessage, AIMessage
-from app.core.llm_router import llm_router
-from app.core.file_manager import FileManager
-from app.core.harness import HarnessEngine
+from app.infrastructure.llm_router import llm_router
+from app.infrastructure.file_manager import FileManager
+from app.infrastructure.harness import HarnessEngine
 from app.utils.helpers import extract_code
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,13 @@ class DocumentationAgent:
     async def run(state: dict) -> dict:
         logger.info("[Agent] 📝 Documentation starting...")
 
-        model = llm_router.get_model(task_type="documentation")
+        user_settings = state.get("user_settings", {})
+        model = llm_router.get_model(
+            task_type="documentation",
+            provider_override=user_settings.get("llm_provider"),
+            model_override=user_settings.get("model_name"),
+            runtime_settings=user_settings,
+        )
         file_manager = FileManager()
 
         project_name = state.get("project_name", "ds-project")
@@ -79,6 +85,7 @@ class DocumentationAgent:
             ("eda", "Exploratory Data Analysis", "EDAAgent"),
             ("model_selection", "Model Selection", "ModelSelectionAgent"),
             ("code_writing", "Code Writing", "CodeWriterAgent"),
+            ("execute_code", "Code Execution", "ExecutionEngine"),
             ("testing", "Testing", "TestingAgent"),
             ("optimization", "Optimization", "OptimizationAgent"),
             ("documentation", "Documentation", "DocumentationAgent"),

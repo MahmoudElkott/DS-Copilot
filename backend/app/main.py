@@ -3,7 +3,7 @@
 FastAPI application entry point for DS-Copilot.
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import logging
@@ -12,7 +12,7 @@ import os
 from app.config import settings
 from app.api.routes import router as api_router
 from app.api.websocket import websocket_endpoint
-from app.core.startup import run_startup_checks
+from app.infrastructure.startup import run_startup_checks
 from app.middleware.error_handler import ErrorHandlerMiddleware
 from app.middleware.rate_limiter import RateLimitMiddleware
 
@@ -80,7 +80,7 @@ app.include_router(api_router)
 
 # WebSocket route
 @app.websocket("/ws/{session_id}")
-async def ws_route(websocket, session_id: str):
+async def ws_route(websocket: WebSocket, session_id: str):
     await websocket_endpoint(websocket, session_id)
 
 
